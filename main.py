@@ -13,22 +13,18 @@ num_of_actions = env.action_space.n
 render = False
 
 
-def BreakoutNeuralNet():
-    # Network defined by the Deepmind paper
-    # inp = Input(shape=(84, 84, 4,))
-    inp = Input(shape=(128, ))
+class BreakoutNeuralNet(tf.keras.Model):
+    def __init__(self, outs):
+        super(BreakoutNeuralNet, self).__init__()
+        self.dense1 = tf.keras.layers.Dense(128, activation="relu")
+        self.dense2 = tf.keras.layers.Dense(64, activation="relu")
+        self.dense3 = tf.keras.layers.Dense(outs, dtype=tf.float32)  # No activation
 
-    # Convolutions on the frames on the screen
-    # layer1 = Conv2D(32, 8, strides=4, activation="relu")(input)
-    # layer2 = Conv2D(64, 4, strides=2, activation="relu")(layer1)
-    # layer3 = Conv2D(64, 3, strides=1, activation="relu")(layer2)
-
-    # layer4 = Flatten()(layer3)
-
-    layer5 = Dense(512, activation="relu")(inp)
-    output = Dense(num_of_actions, activation="linear")(layer5)
-
-    return Model(inputs=inp, outputs=output)
+    def call(self, x):
+        # x = tf.keras.backend.flatten(x)
+        x = self.dense1(x)
+        x = self.dense2(x)
+        return self.dense3(x)
 
 
 class ReplayBuffer:
@@ -58,10 +54,9 @@ class ReplayBuffer:
         self.is_over = False
 
 
-main_model = BreakoutNeuralNet()
-decision_model = BreakoutNeuralNet()
+main_model = BreakoutNeuralNet(num_of_actions)
+decision_model = BreakoutNeuralNet(num_of_actions)
 decision_model.set_weights(main_model.get_weights())
-tape = tf.GradientTape()
 replay_buffer = ReplayBuffer(150)
 mse = tf.keras.losses.MeanSquaredError()
 optimizer = tf.keras.optimizers.Adam(1e-4)
@@ -82,32 +77,37 @@ def actor_action(a_state):
         choice = np.argmax(scores)
     else:
         # wscores = softmax(scores[0])
-        choice = random.choice(range(num_of_actions), weights=scores[0])[0]
+        choice = random.choices(range(num_of_actions), weights=scores[0])[0]
     return choice
 
 
 # todo use this as callback in model
-@tf.function
 def back_propagate(states, actions, rewards, next_states):
-    q_s = main_model(states)
+    # Get current Q_S (moved under tape)
     masks = tf.one_hot(actions, num_of_actions)
-    masks = q_s * masks
 
     # Predict the maximum reward from the next state
+    # Get Q_PRIME_S
     next_scores = decision_model(next_states)
-    q_s_prime = np.array([max(row) for row in next_scores])
+    next_scores = tf.reshape(next_scores, [150, 4])
+    q_s_prime = tf.reduce_max(next_scores, axis=-1)
 
-    # Back propagate the computed new value for the current state
-    new_values = (1 - alpha) * q_s + alpha * (rewards + gamma * q_s_prime)
+    with tf.GradientTape() as tape:
+        q_s = main_model(states)
+        q_s = tf.reshape(q_s, [150, 4])
+        masks = tf.reduce_sum(masks * q_s, axis=1)
 
-    loss = mse(new_values, masks)
+        # Back propagate the computed new value for the current state
+        new_values = (1 - alpha) * masks + alpha * (rewards + gamma * q_s_prime)  # MASKS OR Q_S
+
+        loss = mse(new_values, masks)
 
     # Apply changes on weigths
     grads = tape.gradient(loss, main_model.trainable_variables)
     optimizer.apply_gradients(zip(grads, main_model.trainable_variables))
 
 
-for episode in range(1, 1000):
+for episode in range(0, 1000):
     state = env.reset()
 
     epochs, reward, = 0, 0
@@ -115,13 +115,14 @@ for episode in range(1, 1000):
 
     while not done:
         # Make a decision
+        state = np.asarray([state])
         action = actor_action(state)
 
         # Execute the action and get the new state
         next_state, reward, done, info = env.step(action)
 
         # Store actions in replay buffer
-        replay_buffer.add(state, action, reward, next_state)
+        replay_buffer.add(state, action, reward, np.asarray([next_state]))
 
         if render:
             sleep(0.01)
@@ -133,7 +134,7 @@ for episode in range(1, 1000):
     if epsilon > 0.05:
         epsilon -= 0.001
 
-    if episode % 100 == 0:
+    if episode % 1 == 0:
         print(f"Episode: {episode}")
         states, actions, rewards, next_states = replay_buffer.get_all()
         back_propagate(states, actions, rewards, next_states)
