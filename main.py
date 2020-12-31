@@ -13,8 +13,6 @@ from tensorflow import keras
 env = gym.make('Breakout-ram-v0')
 num_of_actions = env.action_space.n
 
-save_name = 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_') + '.pickle'
-
 render = False
 
 
@@ -60,6 +58,7 @@ class ReplayBuffer:
 
 main_model = BreakoutNeuralNet(num_of_actions)
 decision_model = BreakoutNeuralNet(num_of_actions)
+decision_model.compile(optimizer='adam', loss='mse')
 decision_model.set_weights(main_model.get_weights())
 replay_buffer = ReplayBuffer(150)
 mse = tf.keras.losses.MeanSquaredError()
@@ -72,20 +71,8 @@ epsilon = 1
 
 # For plotting metrics
 episode_reward_history = []
-
-load = 'breakout2020-12-30_16_49_07_921307.pickle.npy'
-save_name = 'test'
-load = 'test.npy'
-
-# load = None
-def save():
-    np.save(save_name, main_model.get_weights())
-
-
-def load_saved():
-    main_model.save_weights(np.load(save_name, allow_pickle=True))
-    decision_model.save_weights(main_model.get_weights())
-
+load = 'breakout2020-12-31_06_17_05_261896.pickle'
+load = None
 
 def actor_action(a_state):
     scores = main_model(a_state)
@@ -123,15 +110,21 @@ def back_propagate(states, actions, rewards, next_states):
     optimizer.apply_gradients(zip(grads, main_model.trainable_variables))
 
 
+save_name = 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_') + '.pickle'
 for episode in range(0, 10000):
     state = env.reset()
 
     reward, episode_reward = 0, 0
     done = False
 
-    if load:
+    if load and episode == 0:
         save_name = load
-        load_saved()
+        model = keras.models.load_model(save_name)
+        print([x.shape for x in model.get_weights()])
+        main_model(np.asarray([state]))
+        main_model.set_weights(model.get_weights())
+        decision_model(np.asarray([state]))
+        decision_model.set_weights(main_model.get_weights())
 
     while not done:
         # Make a decision
@@ -154,7 +147,7 @@ for episode in range(0, 10000):
 
     if epsilon > 0.5:
         epsilon -= 0.001
-
+        
     episode_reward_history.append(episode_reward)
     running_reward = np.mean(episode_reward_history)
 
@@ -165,4 +158,4 @@ for episode in range(0, 10000):
         decision_model.set_weights(main_model.get_weights())
         replay_buffer.clear()
 
-        save()
+        main_model.save(save_name)
