@@ -14,7 +14,7 @@ env = gym.make('Breakout-ram-v0')
 num_of_actions = env.action_space.n
 
 render = False
-
+save_name = 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_') + '.pickle'
 
 class BreakoutNeuralNet(tf.keras.Model):
     def __init__(self, outs):
@@ -71,8 +71,9 @@ epsilon = 1
 
 # For plotting metrics
 episode_reward_history = []
-load = 'breakout2020-12-31_06_17_05_261896.pickle'
-load = None
+load = 'backup_breakout2020-12-31_06_38_34_631078.pickle'
+# load = None
+
 
 def actor_action(a_state):
     scores = main_model(a_state)
@@ -110,11 +111,11 @@ def back_propagate(states, actions, rewards, next_states):
     optimizer.apply_gradients(zip(grads, main_model.trainable_variables))
 
 
-save_name = 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_') + '.pickle'
-for episode in range(0, 10000):
+for episode in range(0, 100000):
     state = env.reset()
 
     reward, episode_reward = 0, 0
+    episode_reward_history.clear()
     done = False
 
     if load and episode == 0:
@@ -146,7 +147,7 @@ for episode in range(0, 10000):
         state = next_state
 
     if epsilon > 0.5:
-        epsilon -= 0.001
+        epsilon -= 0.00001
         
     episode_reward_history.append(episode_reward)
     running_reward = np.mean(episode_reward_history)
@@ -158,4 +159,5 @@ for episode in range(0, 10000):
         decision_model.set_weights(main_model.get_weights())
         replay_buffer.clear()
 
-        main_model.save(save_name)
+        # print(main_model.get_weights())
+        main_model.save("./drive/MyDrive/Colab Notebooks/" + save_name)
