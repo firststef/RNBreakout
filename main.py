@@ -14,7 +14,7 @@ env = gym.make('Breakout-ram-v0')
 num_of_actions = env.action_space.n
 
 render = False
-save_name = 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_') + '.pickle'
+save_name = "./drive/MyDrive/Colab Notebooks/" + 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_')
 
 class BreakoutNeuralNet(tf.keras.Model):
     def __init__(self, outs):
@@ -67,12 +67,11 @@ optimizer = tf.keras.optimizers.Adam(1e-4)
 # Hyper parameters
 alpha = 0.1
 gamma = 0.99
-epsilon = 1
+epsilon = 0.5
 
 # For plotting metrics
 episode_reward_history = []
-load = 'backup_breakout2020-12-31_06_38_34_631078.pickle'
-# load = None
+load = "./drive/MyDrive/Colab Notebooks/" + 'backup_breakout2020-12-31_06_38_34_631078.pickle'
 
 
 def actor_action(a_state):
@@ -114,7 +113,7 @@ def back_propagate(states, actions, rewards, next_states):
 for episode in range(0, 100000):
     state = env.reset()
 
-    reward, episode_reward = 0, 0
+    reward, episode_reward, previous_lives = 0, 0, 0
     episode_reward_history.clear()
     done = False
 
@@ -135,6 +134,12 @@ for episode in range(0, 100000):
         # Execute the action and get the new state
         next_state, reward, done, info = env.step(action)
 
+        reward *= 3
+
+        if action == 1 and info["ale.lives"] != previous_lives:
+            reward += 0.5
+            previous_lives = info["ale.lives"]
+
         episode_reward += reward
 
         # Store actions in replay buffer
@@ -146,7 +151,7 @@ for episode in range(0, 100000):
 
         state = next_state
 
-    if epsilon > 0.5:
+    if epsilon > 0.1:
         epsilon -= 0.00001
         
     episode_reward_history.append(episode_reward)
@@ -160,4 +165,4 @@ for episode in range(0, 100000):
         replay_buffer.clear()
 
         # print(main_model.get_weights())
-        main_model.save("./drive/MyDrive/Colab Notebooks/" + save_name)
+        main_model.save(save_name)
