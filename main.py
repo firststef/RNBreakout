@@ -5,21 +5,20 @@ from time import sleep
 import random
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import Model
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Input
 from tensorflow import keras
 
 env = gym.make('Breakout-ram-v0')
 num_of_actions = env.action_space.n
+num_of_history_actions = 3
 
 render = False
 save_name = "./drive/MyDrive/Colab Notebooks/" + 'breakout' + str(datetime.now()).replace(' ', '_').replace('.', '_').replace(':', '_')
 
+
 class BreakoutNeuralNet(tf.keras.Model):
     def __init__(self, outs):
         super(BreakoutNeuralNet, self).__init__()
-        self.dense1 = tf.keras.layers.Dense(128, activation="relu")
+        self.dense1 = tf.keras.layers.Dense(128 * num_of_history_actions, activation="relu")
         self.dense2 = tf.keras.layers.Dense(64, activation="relu")
         self.dense3 = tf.keras.layers.Dense(outs, dtype=tf.float32)  # No activation
 
@@ -56,6 +55,22 @@ class ReplayBuffer:
         self.is_over = False
 
 
+class CyclingBuffer:
+    def __init__(self, maxlen):
+        self.buffer = []
+        self.maxlen = maxlen
+        self.is_over = False
+
+    def add(self, elem):
+        if self.is_over:
+            self.buffer = self.buffer[1:]
+            self.buffer.append(elem)
+        else:
+            self.buffer.append(elem)
+            if len(self.buffer) >= self.maxlen:
+                self.is_over = True
+
+
 main_model = BreakoutNeuralNet(num_of_actions)
 decision_model = BreakoutNeuralNet(num_of_actions)
 decision_model.compile(optimizer='adam', loss='mse')
@@ -63,15 +78,20 @@ decision_model.set_weights(main_model.get_weights())
 replay_buffer = ReplayBuffer(150)
 mse = tf.keras.losses.MeanSquaredError()
 optimizer = tf.keras.optimizers.Adam(1e-4)
+states_c = CyclingBuffer(num_of_history_actions)
+next_states_c = CyclingBuffer(num_of_history_actions)
 
 # Hyper parameters
-alpha = 0.1
+alpha = 0.07
 gamma = 0.99
-epsilon = 0.5
+epsilon = 1
 
 # For plotting metrics
 episode_reward_history = []
-load = "./drive/MyDrive/Colab Notebooks/" + 'backup_breakout2020-12-31_06_38_34_631078.pickle'
+# load = "./drive/MyDrive/Colab Notebooks/" + 'backup_breakout2020-12-31_06_38_34_631078.pickle'
+# load = None
+save_name = "./drive/MyDrive/Colab Notebooks/" + 'learnratesimple'
+load = None
 
 
 def actor_action(a_state):
@@ -112,48 +132,51 @@ def back_propagate(states, actions, rewards, next_states):
 
 for episode in range(0, 100000):
     state = env.reset()
+    next_state = state
 
     reward, episode_reward, previous_lives = 0, 0, 0
     episode_reward_history.clear()
     done = False
 
     if load and episode == 0:
-        save_name = load
-        model = keras.models.load_model(save_name)
+        model = keras.models.load_model(load)
         print([x.shape for x in model.get_weights()])
         main_model(np.asarray([state]))
         main_model.set_weights(model.get_weights())
         decision_model(np.asarray([state]))
         decision_model.set_weights(main_model.get_weights())
 
+    # Filling array at start
+    for i in range(num_of_history_actions - 1):
+        states_c.add(state)
+        next_states_c.add(state)
+
     while not done:
-        # Make a decision
-        state = np.asarray([state])
+        states_c.add(state)
+        state = np.asarray([states_c.buffer])
+        state = state.reshape((1, 128 * num_of_history_actions))
         action = actor_action(state)
 
         # Execute the action and get the new state
         next_state, reward, done, info = env.step(action)
 
-        reward *= 3
-
-        if action == 1 and info["ale.lives"] != previous_lives:
-            reward += 0.5
-            previous_lives = info["ale.lives"]
-
         episode_reward += reward
+        next_states_c.add(next_state)
 
         # Store actions in replay buffer
-        replay_buffer.add(state, action, reward, np.asarray([next_state]))
+        save_new = np.asarray([next_states_c.buffer])
+        save_new = save_new.reshape((1, 128 * num_of_history_actions))
+        replay_buffer.add(state, action, reward, save_new)
 
-        if render:
-            sleep(0.01)
-            env.render()
+        # if render:
+        #     sleep(0.01)
+        #     env.render()
 
         state = next_state
 
-    if epsilon > 0.1:
+    if epsilon > 0.5:
         epsilon -= 0.00001
-        
+
     episode_reward_history.append(episode_reward)
     running_reward = np.mean(episode_reward_history)
 
