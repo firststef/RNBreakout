@@ -1,3 +1,3 @@
 # RNBreakout
 
-##by Ștefan Petrovici & Donciu Codrin
+## by Ștefan Petrovici & Donciu Codrin
